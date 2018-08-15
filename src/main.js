@@ -127,9 +127,10 @@ Promise.resolve()
         })
         .catch((err)=>{
             console.warn("Error Observing ",twitterUserTimeLine.DataSourceMetadata.DataSourceID," ",err);
-        });
-
-        twitterStore.Observe(twitterHashTagStream.DataSourceMetadata.DataSourceID)
+        })
+        .then (() =>{
+            return twitterStore.Observe(twitterHashTagStream.DataSourceMetadata.DataSourceID)
+        })
         .then((emitter)=>{
 
             emitter.on('data',(data)=>{
