@@ -7,7 +7,7 @@ apk del make gcc g++ python curl git krb5-dev
 ADD ./package.json /package.json
 RUN npm install --production && npm run clean
 
-ADD . .
+COPY . .
 
 LABEL databox.type="app"
 
