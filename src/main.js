@@ -15,43 +15,118 @@ const credentials = databox.getHttpsCredentials();
 const DATABOX_ZMQ_ENDPOINT = process.env.DATABOX_ZMQ_ENDPOINT
 
 //connect to my store to write data
-sentimentStore = databox.NewTimeSeriesBlobClient(DATABOX_ZMQ_ENDPOINT, false);
+let sentimentStore = new databox.NewTimeSeriesBlobClient(DATABOX_ZMQ_ENDPOINT, false)
+sentimentStore.RegisterDatasource({
+        Description: 'Twitter user timeline sentiment',
+        ContentType: 'text/json',
+        Vendor: 'Databox Inc.',
+        DataSourceType: 'twitter:sentiment:UserTimeline',
+        DataSourceID: 'UserTimelineSentiment',
+        StoreType: 'tsblob',
+})
+.then(()=>{
+    sentimentStore.RegisterDatasource({
+        Description: 'Twitter hash tag sentiment',
+        ContentType: 'text/json',
+        Vendor: 'Databox Inc.',
+        DataSourceType: 'twitter:sentiment:HashTag',
+        DataSourceID: 'HashTagSentiment',
+        StoreType: 'tsblob',
+    })
+})
+.catch((err)=>{
+    console.log("RegisterDatasource Error:: " + err)
+})
 
 //The endpoint for the data sources requested in the manifest ( env var name derived from the id in the manifest)
 let twitterUserTimeLine = {};
-databox.HypercatToSourceDataMetadata(process.env.DATASOURCE_DS_twitterUserTimeLine)
-.then((data)=>{
-	twitterUserTimeLine = data
-});
-
 let testActuator = {};
-databox.HypercatToSourceDataMetadata(process.env.DATASOURCE_DS_testActuator)
-.then((data)=>{
-    testActuator = data
-    console.log(testActuator);
-});
-
 let twitterHashTagStream = {};
-let twitterStore = null;
+
 databox.HypercatToSourceDataMetadata(process.env.DATASOURCE_DS_twitterHashTagStream)
 .then((data)=>{
     twitterHashTagStream = data
+    return Promise.resolve(new databox.NewTimeSeriesBlobClient(twitterHashTagStream.DataSourceURL, false))
+})
+.then((twitterStore) => {
+    console.log("subscribing")
+    return twitterStore.Observe(twitterHashTagStream.DataSourceMetadata.DataSourceID)
+    .then((emitter)=>{
+        console.log("subscribing to data source 1 " + twitterHashTagStream.DataSourceMetadata.DataSourceID + " got emitter");
+        emitter.on('data',(data)=>{
+            let tweet = JSON.parse(data.data);
+            latestTweet = { tweet:tweet.text, sentiment:sentiment(tweet.text) };
+            sentimentData = { location: tweet.user.location, sentiment: sentiment(tweet.text) };
+            console.log("twitterHashTagStream received ")
+            databox.export.longpoll('https://export.amar.io/', sentimentData)
+                .catch((err)=>{
+                    console.log("ERROR databox.export.longpoll " + err);
+                });
+                sentimentStore.Write('HashTagSentiment',sentimentData)
+                .catch((err)=>{
+                    console.warn(err);
+                });
+        });
+        emitter.on('error',(err)=>{
+            console.warn(err);
+        });
+        return
+    })
+    .catch((err)=>{
+        console.log("subscribing to twitterUserTimeLine Error:: " + err)
+    })
+})
+.catch((err)=>{
+    console.log("subscribing to twitterHashTagStream Error:: " + err)
+})
 
-    //connect to the store I'm reading data from
-    twitterStore = databox.NewTimeSeriesBlobClient(twitterHashTagStream.DataSourceURL, false)
-});
+databox.HypercatToSourceDataMetadata(process.env.DATASOURCE_DS_twitterUserTimeLine)
+.then((data)=>{
+    twitterUserTimeLine = data
+    return Promise.resolve(new databox.NewTimeSeriesBlobClient(twitterUserTimeLine.DataSourceURL, false))
+})
+.then((twitterStore) => {
+    console.log("subscribing")
+    return twitterStore.Observe(twitterUserTimeLine.DataSourceMetadata.DataSourceID)
+    .then((emitter)=>{
+        console.log("subscribing to data source 2 " + twitterUserTimeLine.DataSourceMetadata.DataSourceID + " got emitter");
+        emitter.on('data',(data)=>{
+            let tweet = JSON.parse(data.data);
+            latestTweet = { tweet:tweet.text, sentiment:sentiment(tweet.text) };
+            sentimentData = { location: tweet.user.location, sentiment: sentiment(tweet.text) };
+            console.log("twitterUserTimeLine received ")
+            databox.export.longpoll('https://export.amar.io/', sentimentData)
+            .catch((err)=>{
+                console.log("ERROR databox.export.longpoll " + err);
+            });
+            sentimentStore.Write('UserTimelineSentiment',sentimentData)
+            .catch((err)=>{
+                console.warn(err);
+            });
+        });
+        emitter.on('error',(err)=>{
+            console.warn(err);
+        });
+        return
+    })
+    .catch((err)=>{
+        console.log("subscribing to twitterUserTimeLine Error:: " + err)
+    })
+})
+.catch((err)=>{
+    console.log("subscribing to twitterUserTimeLine Error:: " + err)
+})
 
+//Express server for UI
+console.log("stating ui server");
+let app = express();
 
-
-
-var app = express();
-
-var status = "init";
+let status = "init";
 app.get("/status", function(req, res) {
     res.send(status);
 });
 
-var latestTweet = {tweet:"No tweets received yet ...."};
+let latestTweet = {tweet:"No tweets received yet ...."};
 app.get("/ui", function(req, res) {
     res.send("<html><script>setTimeout(function(){window.location.reload();},2000);</script><body><h2><pre>" + JSON.stringify(latestTweet, null, 4) + "</pre></h2></body></html>");
 });
@@ -69,94 +144,5 @@ app.get("/ui/acctest", function(req, res) {
 
 //start the express server
 https.createServer(credentials, app).listen(8080);
-
-Promise.resolve()
-  .then(() =>{
-    return new Promise((resolve,reject)=>{
-      //let everyone know that I'm ready
-      status = "active";
-
-      //Register my sentiment datasource with my store to make it available to other apps
-      console.log("Registering sentiment datasource");
-
-        sentimentStore.RegisterDatasource({
-            Description: 'Twitter user timeline sentiment',
-            ContentType: 'text/json',
-            Vendor: 'Databox Inc.',
-            DataSourceType: 'twitterUserTimelineSentiment',
-            DataSourceID: 'twitterUserTimelineSentiment',
-            StoreType: 'ts',
-        })
-        .then(()=>{
-            return sentimentStore.RegisterDatasource({
-                Description: 'Twitter hash tag sentiment',
-                ContentType: 'text/json',
-                Vendor: 'Databox Inc.',
-                DataSourceType: 'twitterHashTagSentiment',
-                DataSourceID: 'twitterHashTagSentiment',
-                StoreType: 'store-json',
-            })
-        })
-        .then(resolve());
-    });
-  })
-  .then(()=>{
-
-    //register for live streaming data from the driver-twitter
-    console.log("subscribing to data sources");
-
-        twitterStore.Observe(twitterUserTimeLine.DataSourceMetadata.DataSourceID)
-        .then((emitter)=>{
-
-            emitter.on('data',(data)=>{
-                let tweet = JSON.parse(data.data);
-                latestTweet = { tweet:tweet.text, sentiment:sentiment(tweet.text) };
-                sentimentData = { location: tweet.user.location, sentiment: sentiment(tweet.text) };
-                databox.export.longpoll('https://export.amar.io/', sentimentData)
-                .catch((err)=>{
-                    console.log("ERROR databox.export.longpoll " + err);
-                });
-                sentimentStore.Write('twitterUserTimelineSentiment',sentimentData)
-                .catch((err)=>{
-                    console.warn(err);
-                });
-            });
-            emitter.on('error',(err)=>{
-                console.warn(err);
-            });
-        })
-        .catch((err)=>{
-            console.warn("Error Observing ",twitterUserTimeLine.DataSourceMetadata.DataSourceID," ",err);
-        });
-
-        twitterStore.Observe(twitterHashTagStream.DataSourceMetadata.DataSourceID)
-        .then((emitter)=>{
-
-            emitter.on('data',(data)=>{
-                let tweet = JSON.parse(data.data);
-                latestTweet = { tweet:tweet.text, sentiment:sentiment(tweet.text) };
-                sentimentData = { location: tweet.user.location, sentiment: sentiment(tweet.text) };
-                databox.export.longpoll('https://export.amar.io/', sentimentData)
-                .catch((err)=>{
-                    console.log("ERROR databox.export.longpoll " + err);
-                });
-                sentimentStore.Write('twitterHashTagSentiment',sentimentData)
-                .catch((err)=>{
-                    console.warn(err);
-                });
-
-            });
-            emitter.on('error',(err)=>{
-                console.warn(err);
-            });
-        }).catch((err)=>{
-            console.warn("Error Observing ",twitterHashTagStream.DataSourceMetadata.DataSourceID," ",err);
-        });
-
-  })
-  .catch((error)=>{
-      status="error";
-      console.log("[ERROR]",error);
-  });
 
 module.exports = app;

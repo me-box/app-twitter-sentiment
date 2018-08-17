@@ -29,17 +29,12 @@
     "basic-auth": "^1.1.0",
     "body-parser": "^1.15.2",
     "express": "^4.14.0",
-    "macaroons.js": "^0.3.6",
     "modclean": "",
-    "nedb": "^1.8.0",
-    "node-databox": "^0.7.6",
-    "node-uuid": "^1.4.7",
+    "node-databox": "^0.8.1",
     "path-to-regexp": "^1.7.0",
-    "promise": "^7.1.1",
     "request": "^2.75.0",
     "sentiment": "^3.0.1",
-    "url": "^0.11.0",
-    "ws": "^1.1.2"
+    "url": "^0.11.0"
   },
   "devDependencies": {
     "assert": "^1.4.1",
